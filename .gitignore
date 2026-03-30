@@ -6,3 +6,4 @@ whale-tracker/tracked_wallets.json
 whale-tracker/verified_wallets.json
 whale-tracker/alerts.json
 whale-tracker/.env
+whale-tracker/lookup_results/

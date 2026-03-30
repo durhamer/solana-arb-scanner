@@ -17,6 +17,7 @@ from config import HELIUS_API_KEY, TRACKED_WALLETS_FILE
 
 VERIFIED_WALLETS_FILE = "verified_wallets.json"
 HELIUS_TX_URL = "https://api.helius.xyz/v0/addresses/{address}/transactions"
+HELIUS_PARSE_TX_URL = "https://api.helius.xyz/v0/transactions"
 MIN_SCORE = 60
 SLEEP_BETWEEN_REQUESTS = 0.5
 
@@ -28,15 +29,73 @@ def _load_tracked_wallets() -> list[dict]:
 
 
 def _fetch_swap_transactions(address: str) -> list[dict]:
-    """Fetch last 50 SWAP transactions for a wallet via Helius."""
+    """Fetch last 50 SWAP transactions for a wallet via Helius.
+
+    Strategy:
+    1. Try GET /v0/addresses/{address}/transactions?type=SWAP (enhanced tx API).
+    2. On 404, fall back to getSignaturesForAddress via Helius RPC, then batch-parse
+       the signatures with POST /v0/transactions.
+    3. If both fail, return [] so the caller can assign score=0.
+    """
+    from config import HELIUS_RPC_URL
+
     url = HELIUS_TX_URL.format(address=address)
     params = {"api-key": HELIUS_API_KEY, "type": "SWAP", "limit": 50}
     try:
         resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        if resp.status_code == 404:
+            print(f"  [warn] Enhanced TX API 404 for {address[:8]}..., trying RPC fallback")
+        else:
+            resp.raise_for_status()
+            return resp.json()
+    except requests.HTTPError as e:
+        print(f"  [warn] Failed to fetch transactions for {address[:8]}...: HTTP {e.response.status_code}")
+        return []
     except Exception as e:
-        print(f"  [warn] Failed to fetch transactions for {address[:8]}...: {e}")
+        print(f"  [warn] Failed to fetch transactions for {address[:8]}...: {type(e).__name__}")
+        return []
+
+    # --- Fallback: getSignaturesForAddress via Helius RPC ---
+    rpc_url = HELIUS_RPC_URL.format(api_key=HELIUS_API_KEY)
+    try:
+        rpc_payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getSignaturesForAddress",
+            "params": [address, {"limit": 50}],
+        }
+        rpc_resp = requests.post(rpc_url, json=rpc_payload, timeout=15)
+        rpc_resp.raise_for_status()
+        sig_result = rpc_resp.json().get("result") or []
+        signatures = [item["signature"] for item in sig_result if item.get("signature")]
+        if not signatures:
+            print(f"  [warn] No signatures found for {address[:8]}... (score=0)")
+            return []
+    except requests.HTTPError as e:
+        print(f"  [warn] RPC getSignaturesForAddress HTTP {e.response.status_code} for {address[:8]}... (score=0)")
+        return []
+    except Exception as e:
+        # Avoid printing the exception directly — it may contain the RPC URL with the API key
+        print(f"  [warn] RPC getSignaturesForAddress failed for {address[:8]}...: {type(e).__name__} (score=0)")
+        return []
+
+    # --- Batch-parse signatures via POST /v0/transactions ---
+    try:
+        parse_resp = requests.post(
+            HELIUS_PARSE_TX_URL,
+            params={"api-key": HELIUS_API_KEY},
+            json={"transactions": signatures},
+            timeout=20,
+        )
+        parse_resp.raise_for_status()
+        all_txs = parse_resp.json()
+        # Keep only SWAP transactions to match the original filter
+        return [tx for tx in all_txs if tx.get("type") == "SWAP"]
+    except requests.HTTPError as e:
+        print(f"  [warn] Batch parse transactions HTTP {e.response.status_code} for {address[:8]}... (score=0)")
+        return []
+    except Exception as e:
+        print(f"  [warn] Batch parse transactions failed for {address[:8]}...: {type(e).__name__} (score=0)")
         return []
 
 

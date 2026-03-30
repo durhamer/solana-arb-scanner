@@ -2,9 +2,10 @@
 Whale Tracker — main entry point.
 
 Usage:
-    python main.py discover   # discover smart-money wallets
-    python main.py monitor    # monitor tracked wallets in real time (TODO)
-    python main.py analyze    # analyze copy-trade performance (TODO)
+    python main.py discover                  # discover smart-money wallets
+    python main.py monitor                   # monitor tracked wallets in real time (TODO)
+    python main.py analyze                   # analyze copy-trade performance (TODO)
+    python main.py lookup <token_mint>       # find smart wallets holding a token
 """
 
 import asyncio
@@ -23,9 +24,15 @@ def main() -> None:
     elif command == "analyze":
         from analyzer import run_analysis
         run_analysis()
+    elif command == "lookup":
+        if len(sys.argv) < 3:
+            print("Usage: python main.py lookup <token_mint_address>")
+            sys.exit(1)
+        from lookup import run_lookup
+        run_lookup(sys.argv[2])
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python main.py [discover|monitor|analyze]")
+        print("Usage: python main.py [discover|monitor|analyze|lookup <token_mint>]")
         sys.exit(1)
 
 
