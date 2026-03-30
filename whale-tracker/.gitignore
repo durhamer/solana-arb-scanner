@@ -1,0 +1,14 @@
+# Sensitive data files
+tracked_wallets.json
+verified_wallets.json
+alerts.json
+
+# CSV logs
+*.csv
+
+# Environment variables (real keys)
+.env
+
+# Python
+__pycache__/
+venv/
